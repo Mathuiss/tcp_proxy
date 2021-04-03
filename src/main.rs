@@ -5,28 +5,33 @@ use std::thread;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const BUFSIZE: usize = 8;
+const BUFSIZE: usize = 256;
 
 fn handle_client(mut incoming: TcpStream) {
+    incoming
+        .set_read_timeout(Some(Duration::from_millis(1)))
+        .expect("Failed to set read timeout");
+
     let request = stream_read_to_end(&mut incoming);
-    // save_to_file(&request);
+    save_to_file(&request);
 
     let mut upstream =
         TcpStream::connect("127.0.0.1:8080").expect("Failed to connect to upstream host");
+
+    upstream
+        .set_read_timeout(Some(Duration::from_millis(1)))
+        .expect("Failed to set read timeout");
 
     upstream
         .write_all(&request.as_bytes())
         .expect("Failed to write request to stream");
 
     upstream.flush().unwrap();
-    upstream
-        .set_read_timeout(Some(Duration::from_millis(25)))
-        .expect("Failed to set read timeout");
 
     let response = stream_read_to_end(&mut upstream);
 
     match incoming.write(response.as_bytes()) {
-        Ok(_) => println!("Response sent"),
+        Ok(_) => {}
         Err(e) => println!("Failed sending response: {}", e),
     }
 }
@@ -45,12 +50,14 @@ fn stream_read_to_end(stream: &mut TcpStream) -> String {
 
         bytes.extend_from_slice(&buf[..c]);
 
-        if c < BUFSIZE {
+        if stream.peek(&mut [0x0; 1]).unwrap_or(0) < 1 {
             break;
         }
     }
 
-    return String::from(String::from_utf8_lossy(&bytes));
+    let resp = String::from(String::from_utf8_lossy(&bytes));
+
+    return resp;
 }
 
 fn save_to_file(data: &String) {
